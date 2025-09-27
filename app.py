@@ -3,20 +3,15 @@ from flask_cors import CORS
 from datetime import datetime
 import json
 import os
-import requests # <- FIX 1: Import the requests library
+import requests 
 import uuid
 import sqlite3
-
-# --- Configuration ---
 DATABASE_NAME = 'itenarygenerator.db'
 CANVAS_APP_ID = os.environ.get('__app_id', 'default-hackathon-app-id')
 CANVAS_INITIAL_AUTH_TOKEN = os.environ.get('__initial_auth_token', 'mock-auth-token')
 
-# FIX 2: Read the API key from the environment variable (set in the terminal)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '') 
 AI_READY = bool(GEMINI_API_KEY)
-
-# --- Database Initialization and Helpers ---
 def get_db_connection():
     db = getattr(g, '_database', None)
     if db is None:
@@ -34,7 +29,6 @@ def seed_places_data(db):
     cursor.execute('SELECT COUNT(*)FROM places')
     if cursor.fetchone()[0] == 0:
         print("SQLITE: Seeding initial places data...")
-        # Note: Corrected variable name from mock_places_jaipur to mock_places
         mock_places = [
             { "id": "J1A", "name": "Panna Meena ka Kund (Stepwell)", "city": "Jaipur", "category": "history,architecture,quiet", "duration_minutes": 60, "underrated_score": 5, "geo_point": '{"lat": 26.985, "lon": 75.85}' },
             { "id": "J3C", "name": "Patrika Gate", "city": "Jaipur", "category": "photography,architecture,modern", "duration_minutes": 45, "underrated_score": 4, "geo_point": '{"lat": 26.85, "lon": 75.80}' },
@@ -57,7 +51,6 @@ def seed_places_data(db):
         
 def init_db():
     db = get_db_connection()
-    # Execute the table creation outside the app_context block to simplify
     db.execute("""
             CREATE TABLE IF NOT EXISTS places (
                 id TEXT PRIMARY KEY,
@@ -76,12 +69,8 @@ def get_available_places(city, interests):
     print(f"SQLITE: Querying places for {city} interested in {interests}...")
     db = get_db_connection()
     cursor = db.cursor()
-    
-    # Base query
     query = "SELECT * FROM places WHERE city = ?"
     params = [city]
-
-    # Add dynamic interest filtering
     if interests:
         query += " AND ("
         interest_clauses = [f"category LIKE ?"] * len(interests)
@@ -103,15 +92,9 @@ def get_available_places(city, interests):
 def save_itinerary(itinerary_data, user_id):
     db = get_db_connection()
     cursor = db.cursor()
-    # Itinerary steps come from the 'schedule' key in the generated_itinerary
     itinerary_steps_json = json.dumps(itinerary_data.get('itinerary_steps', [])) 
     request_details_json = json.dumps(itinerary_data.get('request_details', {}))
-    
-    # We assume an 'itineraries' table exists or needs to be created, though not in init_db
-    # For now, we'll skip the database save step to ensure the API call works under pressure
     # print(f"SQLITE: Skipping database save for submission speed.")
-    
-    # If you need to enable the save functionality later, ensure this table exists:
     # db.execute("""
     #     CREATE TABLE IF NOT EXISTS itineraries (
     #         id INTEGER PRIMARY KEY,
@@ -125,8 +108,6 @@ def save_itinerary(itinerary_data, user_id):
     # db.commit()
 
     return True # Always succeed for now
-
-# --- Flask App Setup ---
 app = Flask(__name__)
 app.teardown_appcontext(close_connection)
 CORS(app)
@@ -147,9 +128,7 @@ def status_check_route():
 @app.route('/generate_itinerary', methods=['POST'])
 def generate_itinerary_route():
     if not AI_READY:
-        # MOCK RESPONSE LOGIC (If key is NOT present)
         print("MOCK: GEMINI_API_KEY is empty. Returning static mock response.")
-        # Simulating a mock response delay
         import time
         time.sleep(1.5) 
         generated_itinerary = {
@@ -162,9 +141,6 @@ def generate_itinerary_route():
             ]
         }
         return jsonify({"success": True, "itinerary": generated_itinerary}), 200
-
-    # --- LIVE AI LOGIC (Only runs if AI_READY is True) ---
-    try:
         data = request.get_json()
         city = data.get('city')
         time_available_hours = data.get('time_available_hours')
@@ -180,8 +156,6 @@ def generate_itinerary_route():
             return jsonify({"error": "Could not find any places matching your criteria. Try 'Jaipur' and 'history'."}), 404
 
         places_json_string = json.dumps(available_places, indent=2)
-        
-        # System prompt slightly updated for clarity
         system_prompt = (
             "You are a world-class travel planner specializing in creating highly personalized, time-optimized, and "
             "unique itineraries. The user has a budget of exactly "
@@ -197,8 +171,6 @@ def generate_itinerary_route():
             "Crucially, the 'placeId' in your schedule MUST match the 'id' from the provided list. "
             f"\n\nAVAILABLE PLACES:\n{places_json_string}"
         )
-        
-        # Defining the JSON Schema for structured output
         response_schema = {
             "type": "OBJECT",
             "properties": {
@@ -261,9 +233,7 @@ def generate_itinerary_route():
         return jsonify({"success": True, "itinerary": generated_itinerary}), 200
 
     except requests.exceptions.HTTPError as e:
-        # This catches HTTP errors from the Gemini API call
         print(f"Gemini API HTTP Error: {e.response.text}")
-        # Returning mock data as a fallback to keep the app running for submission
         return jsonify({"success": True, "itinerary": {
             "summary": "API Error Fallback: Check terminal for details. Using mock data.",
             "schedule": [
@@ -285,8 +255,6 @@ def generate_itinerary_route():
 
 
 if __name__ == '__main__':
-    # Initialize the database and seed data once before starting the server
-    # FIX: Wrap init_db() in app.app_context() to resolve the "Working outside of application context" error.
     with app.app_context():
         init_db() 
         
