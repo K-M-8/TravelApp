@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TravelTales - Your Personalized Itinerary</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { 
+            /* Soft, inviting background color */
+            font-family: 'Inter', sans-serif; 
+            background-color: #f0f4f8; 
+        } 
+        
+        /* Simple timeline styling for the itinerary */
+        .timeline {
+            /* Changed border color to a subtle grey */
+            border-left: 3px solid #cbd5e1; 
+            padding-left: 24px;
+        }
+        .timeline-item {
+            position: relative;
+            margin-bottom: 40px; /* Increased spacing */
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -36px; /* Adjust to align with the border */
+            top: 5px;
+            width: 14px; /* Slightly larger dot */
+            height: 14px;
+            background-color: #3b82f6; /* Primary blue dot */
+            border-radius: 50%;
+            /* Added a subtle shadow and border for depth */
+            border: 3px solid #f0f4f8; /* Matches body background */
+            box-shadow: 0 0 0 2px #93c5fd; /* Light blue halo */
+        }
+        /* Style for the last timeline item */
+        .timeline-item:last-child {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="max-w-md mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    </div>
+
+<script>
+    const MOCK_HOTELS = [
+        { id: 1, name: "The Cozy Nook Inn", stars: 4, price: 1500, rating: 4.5, description: "A quiet boutique stay near the city center, highly recommended." },
+        { id: 2, name: "Luxury Sky Tower", stars: 5, price: 3500, rating: 4.8, description: "Unmatched views and premium services for a grand experience." },
+        { id: 3, name: "Budget Traveler Hostel", stars: 2, price: 450, rating: 3.9, description: "Clean and affordable, great for solo adventurers." },
+    ];
+
+    const MOCK_TICKETS = [
+        { id: 'J2B', name: "Hawa Mahal Entrance Ticket", price: 25, available: true, link: "#" },
+        { id: 'J1A', name: "Panna Meena ka Kund Photography Pass", price: 5, available: true, link: "#" },
+        { id: 'J5E', name: "Lassiwala Tasting Experience", price: 0, available: true, link: "#" },
+    ];
+    const state = {
+        page: 'input', 
+        itineraryData: {
+            summary: "A focused 8-hour journey through Jaipur's historical core and famous food stops.",
+            schedule: [
+                { time: "9:00 AM", activity: "Visit Hawa Mahal (Palace of Winds)", placeId: "J2B" },
+                { time: "11:00 AM", activity: "Photography session at Panna Meena ka Kund", placeId: "J1A" },
+                { time: "1:00 PM", activity: "Lunch and Lassi at Lassiwala on MI Road", placeId: "J5E" },
+                { time: "3:00 PM", activity: "Explore the Amber Fort and Palace", placeId: "J3C" },
+                { time: "5:00 PM", activity: "Shop for local crafts at Johari Bazaar", placeId: "J4D" },
+            ]
+        },
+        loading: false,
+        error: null,
+        form: {
+            city: 'Jaipur',
+            time: 8,
+            interests: ['history', 'food'] 
+        }
+    };
+    const BASE_URL = 'http://127.0.0.1:8080';
+    const appContainer = document.getElementById('app');
+    function setPage(pageName) {
+        state.page = pageName;
+        renderApp();
+    }
+
+    function toggleInterest(interest) {
+        const interests = state.form.interests;
+        if (interests.includes(interest)) {
+            state.form.interests = interests.filter(i => i !== interest);
+        } else {
+            state.form.interests = [...interests, interest];
+        }
+        renderApp(); 
+    }
+    function updateForm(field, value) {
+        state.form[field] = value;
+        renderApp();
+    }
+
+
+    async function handleSubmit(event) {
+        event.preventDefault();
+        
+        state.loading = true;
+        state.error = null;
+        state.itineraryData = null;
+        renderApp(); 
+
+        const time_available_hours = parseInt(state.form.time);
+        if (state.form.interests.length === 0 || !state.form.city || time_available_hours < 1 || isNaN(time_available_hours)) {
+            state.error = "Please fill out all fields and select at least one interest.";
+            state.loading = false;
+            renderApp();
+            return;
+        }
+        const maxRetries = 3;
+        let lastError = null;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                const response = await fetch(`${BASE_URL}/generate_itinerary`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        city: state.form.city,
+                        time_available_hours: time_available_hours, 
+                        interests: state.form.interests
+                    }),
+                });
+                if (!response.ok) {
+                    const errorBody = await response.text();
+                    throw new Error(`Server returned HTTP status ${response.status}. Response content: ${errorBody.substring(0, 100)}...`);
+                }
+
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || "Backend failed to process the request without a specific error message.");
+                }
+
+                state.itineraryData = result.itinerary;
+                setPage('itinerary'); 
+                
+                state.loading = false; 
+                renderApp();
+                return;
+            } catch (err) {
+                lastError = err;
+                if (attempt < maxRetries - 1) {
+                    
+                    await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+                }
+            }
+        }
+        
+        
+        console.error("API call failed after all retries:", lastError);
+        state.error = `Connection Failed: ${lastError.message}. Please ensure your Flask server is running at ${BASE_URL} and that it allows CORS from your frontend port.`;
+    
+        setPage('input');
+        state.loading = false; 
+        renderApp();
+    }
+
+
+    function renderHeader(showBack = false) {
+        const backButton = showBack 
+            ? `<button onclick="setPage('input')" class="p-2 rounded-full text-white hover:bg-gray-700 transition duration-150">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left"><path d="m15 18-6-6 6-6"/></svg>
+               </button>`
+            : `<div class="w-10"></div>`;
+
+        return `
+            <div class="flex justify-between items-center p-4 bg-gray-800 text-white rounded-t-2xl shadow-xl">
+                ${backButton}
+                <h1 class="text-2xl font-extrabold tracking-wide flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plane mr-2 text-sky-400"><path d="M17.8 14.5 12 18 6.2 14.5 5 21l7-2 7 2zM12 2l-7 12 7 4 7-4-7-12z"/></svg>
+                    TravelTales Genie 
+                </h1>
+                <div class="w-10"></div>
+            </div>
+        `;
+    }
+
+    function renderInputForm() {
+        const { city, time, interests } = state.form;
+        
+        const errorHtml = state.error 
+            ? `<div class="p-3 mb-4 bg-red-50 border border-red-300 text-red-700 rounded-lg font-medium shadow-sm" role="alert">${state.error}</div>`
+            : '';
+
+        const interestOptions = ['history','food','views','photography','architecture','local_gem'];
+        const interestButtons = interestOptions.map(interest => {
+            const isActive = interests.includes(interest);
+            const classes = isActive 
+                ? 'bg-blue-600 text-white border-blue-600 shadow-md' 
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300';
+            
+            return `
+                <button
+                    type="button"
+                    onclick="toggleInterest('${interest}')"
+                    class="px-4 py-2 border rounded-full text-sm font-medium transition duration-200 ${classes}"
+                >
+                    ${interest.charAt(0).toUpperCase() + interest.slice(1).replace('_', ' ')}
+                </button>
+            `;
+        }).join('');
+
+        const isDisabled = state.loading || interests.length === 0;
+        const disabledAttr = isDisabled ? 'disabled' : '';
+
+        const formHtml = `
+            <div class="p-8">
+                ${errorHtml}
+                <form id="itinerary-form" class="space-y-6">
+                    <div>
+                        <label for="city" class="block text-base font-semibold text-gray-700 mb-2">Destination City</label>
+                        <input 
+                            type="text" 
+                            id="city" 
+                            value="${city}" 
+                            required
+                            oninput="updateForm('city', this.value)"
+                            class="w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                            placeholder="e.g., London, Tokyo, Jaipur"
+                        />
+                    </div>
+
+                    <div>
+                        <label for="time" class="block text-base font-semibold text-gray-700 mb-2">Time Available (Hours)</label>
+                        <input 
+                            type="number" 
+                            id="time" 
+                            value="${time}" 
+                            oninput="updateForm('time', this.value)"
+                            min="1"
+                            max="24"
+                            required
+                            class="w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                            placeholder="e.g., 8"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block text-base font-semibold text-gray-700 mb-2">Travel Interests</label>
+                        <div class="flex flex-wrap gap-2">
+                            ${interestButtons}
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">Select the themes you want to focus on.</p>
+                    </div>
+
+                    <button
+                        type="submit"
+                        ${disabledAttr}
+                        class="w-full py-4 text-xl font-bold rounded-xl shadow-lg transition duration-300 transform hover:scale-[1.01] flex items-center justify-center ${
+                            isDisabled ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-500/50'
+                        }"
+                    >
+                        ${state.loading ? `
+                            <svg class="animate-spin mr-3 w-5 h-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.343 4.343m7.818 15.324A8.001 8.001 0 0019.657 19.657m-1.74-4.577L14 10l-4 4 4 4 2.897-2.897z"/></svg>
+                            Crafting Your Journey...` 
+                            : 'Create My Travel Portal'
+                        }
+                    </button>
+                </form>
+            </div>
+        `;
+        return formHtml;
+    }
+
+    function renderItineraryView() {
+        if (!state.itineraryData) {
+            setPage('input');
+            return '';
+        }
+        
+        const { summary, schedule } = state.itineraryData;
+
+        const timelineItems = schedule.map(step => `
+            <div class="timeline-item">
+                <p class="text-sm font-medium leading-none text-blue-600 mb-1">${step.time}</p>
+                <h3 class="text-lg font-bold text-gray-900">${step.activity}</h3>
+                <p class="text-xs font-normal text-gray-500 mt-1">Place ID: <strong>${step.placeId}</strong></p>
+            </div>
+        `).join('');
+
+        return `
+            <div class="p-8 space-y-8">
+                <div class="flex space-x-3">
+                    <button 
+                        onclick="setPage('hotels')"
+                        class="flex-1 flex items-center justify-center p-4 bg-amber-500 text-white font-semibold rounded-xl shadow-lg shadow-amber-500/30 hover:bg-amber-600 transition duration-200"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hotel mr-2"><path d="M10 21V19C10 18.2044 10.3161 17.4419 10.8787 16.8787C11.4419 16.3161 12.2044 16 13 16H20C20.7956 16 21.5581 16.3161 22.1213 16.8787C22.6845 17.4419 23 18.2044 23 19V21M3 21V19C3 18.2044 3.31607 17.4419 3.87868 16.8787C4.44189 16.3161 5.20435 16 6 16H9M2 9V2H17V9M17 9H9V12M9 12H17V21M17 21V12M17 12L2 9V21"/></svg>
+                        Hotels
+                    </button>
+                    <button 
+                        onclick="setPage('tickets')"
+                        class="flex-1 flex items-center justify-center p-4 bg-teal-500 text-white font-semibold rounded-xl shadow-lg shadow-teal-500/30 hover:bg-teal-600 transition duration-200"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ticket mr-2"><path d="M18 10h1a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-1"/><path d="M5 10H4a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h1"/><path d="M12 2v20"/><path d="M22 14v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4"/><path d="M2 10V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4"/></svg>
+                        Tickets
+                    </button>
+                </div>
+
+                <div class="bg-blue-50 p-6 rounded-xl shadow-lg border-t-4 border-blue-500">
+                    <h2 class="text-xl font-extrabold mb-2 text-blue-800">Your Day in ${state.form.city} 🗺️</h2>
+                    <p class="text-gray-700 italic">"${summary}"</p>
+                </div>
+                
+                <div class="timeline bg-white p-6 rounded-xl shadow-lg">
+                    ${timelineItems}
+                </div>
+                
+                <button 
+                    onclick="setPage('input')"
+                    class="mt-6 w-full py-3 bg-gray-500 text-white font-semibold rounded-xl shadow-md hover:bg-gray-600 transition duration-200"
+                >
+                    Plan a New Adventure
+                </button>
+            </div>
+        `;
+    }
+
+    function renderHotelsView() {
+        const hotelCards = MOCK_HOTELS.map(hotel => `
+            <div class="bg-white p-5 rounded-xl shadow-lg border-l-4 border-amber-500 hover:shadow-xl transition duration-200">
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="text-xl font-bold text-gray-900">${hotel.name}</h3>
+                    <span class="px-3 py-1 text-base font-extrabold text-white bg-amber-500 rounded-full">Rs.${hotel.price}</span>
+                </div>
+                <p class="text-gray-600 mb-2">${hotel.description}</p>
+                <div class="flex justify-between items-center text-sm text-gray-500 mt-3">
+                    <span class="font-medium text-amber-600">
+                        ⭐ ${hotel.rating} / 5.0 | ${hotel.stars} Stars
+                    </span>
+                    <button class="px-4 py-1 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition">
+                        Book Now (Mock)
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        return `
+            <div class="p-8">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hotel mr-3 text-amber-600"><path d="M10 21V19C10 18.2044 10.3161 17.4419 10.8787 16.8787C11.4419 16.3161 12.2044 16 13 16H20C20.7956 16 21.5581 16.3161 22.1213 16.8787C22.6845 17.4419 23 18.2044 23 19V21M3 21V19C3 18.2044 3.31607 17.4419 3.87868 16.8787C4.44189 16.3161 5.20435 16 6 16H9M2 9V2H17V9M17 9H9V12M9 12H17V21M17 21V12M17 12L2 9V21"/></svg>
+                    Stays in ${state.form.city}
+                </h2>
+                <div class="space-y-5">
+                    ${hotelCards}
+                </div>
+                <button 
+                    onclick="setPage('itinerary')"
+                    class="mt-8 w-full py-3 bg-blue-600 text-white font-semibold rounded-xl shadow-lg hover:bg-blue-700 transition duration-200"
+                >
+                    Back to Itinerary
+                </button>
+            </div>
+        `;
+    }
+
+    function renderTicketsView() {
+        const scheduleIds = state.itineraryData ? state.itineraryData.schedule.map(s => s.placeId) : [];
+
+        const ticketCards = MOCK_TICKETS.map(ticket => {
+            const isRecommended = scheduleIds.includes(ticket.id);
+            const borderClass = isRecommended ? 'border-teal-500' : 'border-gray-300';
+            const badge = isRecommended 
+                ? `<p class="text-sm font-bold text-teal-600 mb-2 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check-circle mr-1"><path d="M22 11.08V12a10 10 0 1 1-5.07-8.7A10.02 10.02 0 0 1 12 2a10 10 0 0 0 0 20"/><path d="M9 15.5l3.5 3.5 6-6"/></svg>
+                    Recommended in Itinerary
+                   </p>`
+                : '';
+            
+            return `
+                <div class="bg-white p-5 rounded-xl shadow-lg border-l-4 ${borderClass} hover:shadow-xl transition duration-200">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-xl font-bold text-gray-900">${ticket.name}</h3>
+                        <span class="px-3 py-1 text-base font-extrabold text-white ${ticket.price === 0 ? 'bg-green-500' : 'bg-teal-500'} rounded-full">${ticket.price === 0 ? 'FREE' : `Rs. ${ticket.price}`}</span>
+                    </div>
+                    ${badge}
+                    <a 
+                        href="${ticket.link}" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        class="mt-3 w-full block text-center py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition"
+                    >
+                        Purchase Ticket (Mock Link)
+                    </a>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="p-8">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ticket mr-3 text-teal-600"><path d="M18 10h1a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-1"/><path d="M5 10H4a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h1"/><path d="M12 2v20"/><path d="M22 14v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4"/><path d="M2 10V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4"/></svg>
+                    Tickets & Experiences
+                </h2>
+                <p class="text-gray-600 mb-6">
+                    Directly purchase tickets for places recommended in your itinerary (or popular spots).
+                </p>
+                <div class="space-y-5">
+                    ${ticketCards}
+                </div>
+                <button 
+                    onclick="setPage('itinerary')"
+                    class="mt-8 w-full py-3 bg-blue-600 text-white font-semibold rounded-xl shadow-lg hover:bg-blue-700 transition duration-200"
+                >
+                    Back to Itinerary
+                </button>
+            </div>
+        `;
+    }
+
+    
+
+    function renderApp() {
+        let contentHtml = '';
+        let headerHtml = '';
+
+        const existingForm = document.getElementById('itinerary-form');
+        if (existingForm) {
+            existingForm.removeEventListener('submit', handleSubmit);
+        }
+
+        if (state.loading) {
+            contentHtml = `
+                <div class="p-10 text-center text-gray-600">
+                    <svg class="animate-spin mx-auto mb-4 w-12 h-12 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.343 4.343m7.818 15.324A8.001 8.001 0 0019.657 19.657m-1.74-4.577L14 10l-4 4 4 4 2.897-2.897z"/></svg>
+                    <p class="text-xl font-bold">Crafting your custom travel portal...</p>
+                    <p class="text-md mt-2 text-gray-500">The AI is optimizing your route and selecting points of interest.</p>
+                </div>
+            `;
+            headerHtml = renderHeader();
+
+        } else if (state.page === 'itinerary' && state.itineraryData) {
+            contentHtml = renderItineraryView();
+            headerHtml = renderHeader(true);
+        
+        } else if (state.page === 'hotels') {
+            contentHtml = renderHotelsView();
+            headerHtml = renderHeader(true);
+        
+        } else if (state.page === 'tickets') {
+            contentHtml = renderTicketsView();
+            headerHtml = renderHeader(true);
+        
+        } else {
+            contentHtml = renderInputForm();
+            headerHtml = renderHeader();
+        }
+
+        appContainer.innerHTML = `
+            <div class="bg-white rounded-2xl shadow-2xl border border-gray-100">
+                ${headerHtml}
+                ${contentHtml}
+            </div>
+        `;
+        
+        if (state.page === 'input') {
+            const form = document.getElementById('itinerary-form');
+            if (form) {
+                form.addEventListener('submit', handleSubmit);
+            }
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', renderApp);
+</script>
+
+</body>
+</html>
